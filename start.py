@@ -75,8 +75,10 @@ def get_latest_build_download_name(endpoint: str) -> str:
     result = response.json()
     return result["downloads"]["application"]["name"]
 
+
 DOWNLOAD_CHUNK_SIZE = 8192
 DOWNLOAD_CHUNK_SIZE_MB = DOWNLOAD_CHUNK_SIZE / 1024 / 1024
+
 
 def download_latest_server_build() -> None:
     """Downloads the latest Paper build to DOWNLOAD_LOCATION."""
