@@ -75,6 +75,8 @@ def get_latest_build_download_name(endpoint: str) -> str:
     result = response.json()
     return result["downloads"]["application"]["name"]
 
+DOWNLOAD_CHUNK_SIZE = 8192
+DOWNLOAD_CHUNK_SIZE_MB = DOWNLOAD_CHUNK_SIZE / 1024 / 1024
 
 def download_latest_server_build() -> None:
     """Downloads the latest Paper build to DOWNLOAD_LOCATION."""
@@ -86,15 +88,21 @@ def download_latest_server_build() -> None:
 
     download.raise_for_status()
     with open(DOWNLOAD_LOCATION, "wb") as file:
-        for chunk in download.iter_content(chunk_size=8192):
+        amount_downloaded = 0
+        for chunk in download.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+            print(f"\rDownloaded: {round(amount_downloaded, 2)} MB", end="")
             file.write(chunk)
+            amount_downloaded += DOWNLOAD_CHUNK_SIZE_MB
+        print()
 
 
 def update_server() -> None:
     """Updates the server jar to the latest available Paper build."""
     try:
+        print("Updating server...")
         download_latest_server_build()
         shutil.move(DOWNLOAD_LOCATION, SERVER_JAR_LOCATION)
+        print("Server download successful.")
     except Exception as e:
         print(e)
         print("An error occurred while updating server. Skipping update step.")
@@ -129,6 +137,7 @@ def user_requests_stop() -> bool:
 
 def run_server() -> None:
     """Runs the current server jar with the JVM flags provided."""
+    print("Starting server...")
     subprocess.call(
         [
             "java",
