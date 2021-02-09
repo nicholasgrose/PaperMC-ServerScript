@@ -5,7 +5,7 @@ import select
 import requests
 import subprocess
 
-MINECRAFT_VERSION = "1.16.4"
+MINECRAFT_VERSION = "1.16.5"
 PAPER_ENDPOINT = (
     f"https://papermc.io/api/v2/projects/paper/versions/{MINECRAFT_VERSION}"
 )
