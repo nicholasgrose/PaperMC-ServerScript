@@ -119,6 +119,7 @@ def user_requests_stop() -> bool:
     """
     print()
     while True:
+        print(f"{RESTART_PROMPT_TIMEOUT} seconds to respond.")
         print('Restart ("r") or stop ("s")?')
         stdin = select.select([sys.stdin], [], [], RESTART_PROMPT_TIMEOUT)[0]
 
@@ -128,12 +129,12 @@ def user_requests_stop() -> bool:
                 print("Restarting server.")
                 return False
             elif user_response == "s":
-                print("Stopping server.")
+                print("Stopping.")
                 return True
             else:
                 print("Invalid response. Please try again.")
         else:
-            print("Automatically restarting server.")
+            print("No response. Automatically restarting server...")
             return False
 
 
