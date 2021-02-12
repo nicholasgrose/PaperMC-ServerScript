@@ -1,4 +1,3 @@
-import shutil
 import os
 import sys
 import select
@@ -84,6 +83,27 @@ DOWNLOAD_CHUNK_SIZE = 8192
 DOWNLOAD_CHUNK_SIZE_MB = DOWNLOAD_CHUNK_SIZE / 1024 / 1024
 
 
+def download_latest_jar(latest_build: int) -> str:
+    download_name = get_latest_build_download_name(
+        f"{PAPER_ENDPOINT}/builds/{latest_build}"
+    )
+    download = requests.get(
+        f"{PAPER_ENDPOINT}/builds/{latest_build}/downloads/{download_name}"
+    )
+
+    download.raise_for_status()
+    downloaded_jar_path = f"{SERVER_JAR_LOCATION}/papermc-server_{latest_build}.jar"
+    with open(downloaded_jar_path, "wb") as file:
+        amount_downloaded = 0
+        for chunk in download.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+            print(f"Downloaded: {round(amount_downloaded, 2)} MB", end="\r")
+            file.write(chunk)
+            amount_downloaded += DOWNLOAD_CHUNK_SIZE_MB
+        print()
+
+    return downloaded_jar_path
+
+
 def download_latest_server_build() -> Tuple[str, str]:
     latest_build = get_latest_build_number(f"{PAPER_ENDPOINT}")
 
@@ -97,36 +117,21 @@ def download_latest_server_build() -> Tuple[str, str]:
     else:
         current_jar_path = f"{SERVER_JAR_LOCATION}/{current_jar}"
 
-    download_name = get_latest_build_download_name(
-        f"{PAPER_ENDPOINT}/builds/{latest_build}"
-    )
-    download = requests.get(
-        f"{PAPER_ENDPOINT}/builds/{latest_build}/downloads/{download_name}"
-    )
+    downloaded_jar_path = download_latest_jar(latest_build)
 
-    download.raise_for_status()
-    downloaded_jar_path = f"{SERVER_JAR_LOCATION}/papermc-server_{latest_build}.jar"
-    with open(downloaded_jar_path, "wb") as file:
-        amount_downloaded = 0
-        for chunk in download.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
-            print(f"\rDownloaded: {round(amount_downloaded, 2)} MB", end="")
-            file.write(chunk)
-            amount_downloaded += DOWNLOAD_CHUNK_SIZE_MB
-        print()
-
-    return current_jar_path, downloaded_jar_path
+    return downloaded_jar_path, current_jar_path
 
 
 def update_server() -> str:
     try:
         print("Updating server...")
-        jar_file_path, old_jar_path = download_latest_server_build()
+        new_jar_path, old_jar_path = download_latest_server_build()
         if old_jar_path is not None:
-            shutil.move(jar_file_path, old_jar_path)
+            os.remove(old_jar_path)
             print("Server successfully updated.")
         else:
             print("Server already up-to-date.")
-        return jar_file_path
+        return new_jar_path
     except Exception as e:
         print(e)
         print("An error occurred while updating server. Skipping update step.")
