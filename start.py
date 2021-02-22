@@ -1,20 +1,16 @@
 import os
-import sys
-import select
-from typing import Tuple, Union
-import requests
-import subprocess
 import re
+import select
+import subprocess
+import sys
+
+import requests
 
 MINECRAFT_VERSION = "1.16.5"
 PROJECT = "paper"
 PAPER_ENDPOINT = (
     f"https://papermc.io/api/v2/projects/{PROJECT}/versions/{MINECRAFT_VERSION}"
 )
-
-SERVER_JAR_LOCATION = os.path.abspath(".")
-
-RESTART_PROMPT_TIMEOUT = 10
 
 SERVER_MEMORY = "6G"
 # We are using Aikar's flags by default: https://aikar.co/2018/07/02/tuning-the-jvm-g1gc-garbage-collector-flags-for-minecraft/
@@ -43,6 +39,30 @@ JVM_FLAGS = [
     "-Daikars.new.flags=true",
 ]
 
+RESTART_PROMPT_TIMEOUT = 10
+
+SERVER_JAR_LOCATION = os.path.abspath(".")
+CURRENT_BUILD = -1
+SERVER_JAR_NAME = None
+CURRENT_JAR_PATH = None
+
+
+def jar_name(build: int) -> str:
+    return f"papermc-server_{build}.jar"
+
+
+def jar_path(jar: str) -> str:
+    return f"{SERVER_JAR_LOCATION}/{jar}"
+
+
+def use_build(build: int) -> None:
+    global CURRENT_BUILD
+    global CURRENT_JAR
+    global CURRENT_JAR_PATH
+    CURRENT_BUILD = build
+    CURRENT_JAR = jar_name(build)
+    CURRENT_JAR_PATH = jar_path(CURRENT_JAR)
+
 
 def get_latest_build_number(endpoint: str) -> int:
     response = requests.get(endpoint)
@@ -58,32 +78,11 @@ def get_latest_build_download_name(endpoint: str) -> str:
     return result["downloads"]["application"]["name"]
 
 
-PAPER_SERVER_REGEX = re.compile("^papermc-server_\d+.jar$")
-
-
-def find_current_server_jar() -> Union[str, None]:
-    for root, dirs, files in os.walk(SERVER_JAR_LOCATION):
-        for file in files:
-            if PAPER_SERVER_REGEX.match(file):
-                return file
-    return None
-
-
-PAPER_BUILD_EXTRACT_REGEX = re.compile("\d+")
-
-
-def server_already_up_to_date(current_jar: str, latest_build: int) -> bool:
-    match = PAPER_BUILD_EXTRACT_REGEX.search(current_jar)
-    if match is None:
-        return False
-    return int(match.group(0)) == latest_build
-
-
 DOWNLOAD_CHUNK_SIZE = 8192
 DOWNLOAD_CHUNK_SIZE_MB = DOWNLOAD_CHUNK_SIZE / 1024 / 1024
 
 
-def download_latest_jar(latest_build: int) -> str:
+def download_latest_jar(latest_build: int) -> None:
     download_name = get_latest_build_download_name(
         f"{PAPER_ENDPOINT}/builds/{latest_build}"
     )
@@ -92,7 +91,7 @@ def download_latest_jar(latest_build: int) -> str:
     )
 
     download.raise_for_status()
-    downloaded_jar_path = f"{SERVER_JAR_LOCATION}/papermc-server_{latest_build}.jar"
+    downloaded_jar_path = jar_path(jar_name(latest_build))
     with open(downloaded_jar_path, "wb") as file:
         amount_downloaded = 0
         for chunk in download.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
@@ -101,37 +100,28 @@ def download_latest_jar(latest_build: int) -> str:
             amount_downloaded += DOWNLOAD_CHUNK_SIZE_MB
         print()
 
-    return downloaded_jar_path
 
-
-def download_latest_server_build() -> Tuple[str, str]:
+def download_latest_server_build() -> str:
     latest_build = get_latest_build_number(f"{PAPER_ENDPOINT}")
 
-    current_jar = find_current_server_jar()
+    if CURRENT_BUILD >= latest_build:
+        return None
 
-    if current_jar is not None and server_already_up_to_date(current_jar, latest_build):
-        return f"{SERVER_JAR_LOCATION}/{current_jar}", None
+    download_latest_jar(latest_build)
 
-    if current_jar is None:
-        current_jar_path = f"{SERVER_JAR_LOCATION}/papermc-server_{latest_build}.jar"
-    else:
-        current_jar_path = f"{SERVER_JAR_LOCATION}/{current_jar}"
-
-    downloaded_jar_path = download_latest_jar(latest_build)
-
-    return downloaded_jar_path, current_jar_path
+    return latest_build
 
 
-def update_server() -> str:
+def update_server() -> None:
     try:
         print("Updating server...")
-        new_jar_path, old_jar_path = download_latest_server_build()
-        if old_jar_path is not None:
-            os.remove(old_jar_path)
+        new_build = download_latest_server_build()
+        if new_build is not None:
+            os.remove(CURRENT_JAR_PATH)
+            use_build(new_build)
             print("Server successfully updated.")
         else:
             print("Server already up-to-date.")
-        return new_jar_path
     except Exception as e:
         print(e)
         print("An error occurred while updating server. Skipping update step.")
@@ -159,21 +149,50 @@ def user_requests_stop() -> bool:
             return False
 
 
-def run_server(server_jar: str) -> None:
+def start_server() -> None:
     print("Starting server...")
+    if CURRENT_JAR_PATH is None:
+        print("Cannot start server.")
+        return
     subprocess.call(
         [
             "java",
         ]
         + JVM_FLAGS
-        + ["-jar", server_jar, "nogui"]
+        + ["-jar", CURRENT_JAR_PATH, "nogui"]
     )
 
 
+def find_current_build() -> int:
+    for root, dirs, files in os.walk(SERVER_JAR_LOCATION):
+        for file in files:
+            if PAPER_SERVER_REGEX.match(file):
+                return build_from_jar_name(file)
+    return -1
+
+
+def build_from_jar_name(jar_name: str) -> int:
+    match = PAPER_BUILD_EXTRACT_REGEX.search(jar_name)
+    if match is None:
+        return -1
+    return int(match.group(0))
+
+
+def fill_in_current_server_info() -> None:
+    current_build = find_current_build()
+    if current_build is not None:
+        use_build(current_build)
+
+
+PAPER_SERVER_REGEX = re.compile("^papermc-server_\d+\.jar$")
+PAPER_BUILD_EXTRACT_REGEX = re.compile("\d+")
+
+
 def main() -> None:
+    fill_in_current_server_info()
     while True:
-        server_jar = update_server()
-        run_server(server_jar)
+        update_server()
+        start_server()
         if user_requests_stop():
             break
 
